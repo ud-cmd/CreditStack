@@ -269,3 +269,57 @@
     (ok true)
   )
 )
+
+;; Update the list of a user's active loans
+(define-private (update-user-loans
+    (user principal)
+    (loan-id uint)
+  )
+  (let ((user-loans (default-to { active-loans: (list) } (map-get? UserLoans { user: user }))))
+    (map-set UserLoans { user: user } { active-loans: (unwrap! (as-max-len? (append (get active-loans user-loans) loan-id) u20)
+      ERR-ACTIVE-LOAN
+    ) }
+    )
+    (ok true)
+  )
+)
+
+;; READ-ONLY FUNCTIONS
+
+;; Get a user's current credit score and loan history
+(define-read-only (get-user-score (user principal))
+  (map-get? UserScores { user: user })
+)
+
+;; Get details of a specific loan
+(define-read-only (get-loan (loan-id uint))
+  (map-get? Loans { loan-id: loan-id })
+)
+
+;; Get a user's active loans
+(define-read-only (get-user-active-loans (user principal))
+  (map-get? UserLoans { user: user })
+)
+
+;; ADMIN FUNCTIONS
+
+;; Mark a loan as defaulted when past due date
+;; Can only be called by contract owner
+(define-public (mark-loan-defaulted (loan-id uint))
+  (let ((loan (unwrap! (map-get? Loans { loan-id: loan-id }) ERR-LOAN-NOT-FOUND)))
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-UNAUTHORIZED)
+    (asserts! (>= stacks-block-height (get due-height loan)) ERR-NOT-DUE)
+    (asserts! (get is-active loan) ERR-LOAN-NOT-FOUND)
+    (asserts! (<= loan-id (var-get next-loan-id)) ERR-INVALID-LOAN-ID)
+    ;; Update loan status
+    (map-set Loans { loan-id: loan-id }
+      (merge loan {
+        is-defaulted: true,
+        is-active: false,
+      })
+    )
+    ;; Update credit score
+    (try! (update-credit-score (get borrower loan) false loan))
+    (ok true)
+  )
+)
